@@ -42,7 +42,7 @@ const envSchema = z
     SWEEP_SECRET: z.string().min(16),
 
     GEMINI_API_KEY: z.string().min(1).optional(),
-    GEMINI_MODEL: z.string().default("gemini-2.5-flash-lite"),
+    GEMINI_MODEL: z.string().default("gemini-3.5-flash-lite"),
 
     WORKER_ENABLED: z
       .enum(["true", "false"])
