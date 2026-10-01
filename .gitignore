@@ -50,3 +50,4 @@ next-env.d.ts
 node_modules/
 .next/
 coverage/
+!.env.example
