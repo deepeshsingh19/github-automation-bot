@@ -6,8 +6,8 @@ import { prisma } from "@/db/client";
 import { getGithubAuthContext } from "@/server/auth/github-token-context";
 import { verifyGithubInstallation } from "@/server/github/installations";
 
-function buildDashboardRedirect(request: NextRequest, error?: string) {
-  const dashboardUrl = new URL("/dashboard", request.url);
+function buildDashboardRedirect(error?: string) {
+  const dashboardUrl = new URL("/dashboard", env.APP_URL);
 
   if (error) {
     dashboardUrl.searchParams.set("githubError", error);
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
   const installationId = request.nextUrl.searchParams.get("installation_id");
 
   if (!installationId || !/^\d+$/.test(installationId)) {
-    return buildDashboardRedirect(request, "invalid_installation");
+    return buildDashboardRedirect("invalid_installation");
   }
 
   const auth = await getGithubAuthContext(request);
@@ -36,9 +36,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const loginUrl = new URL("/login", request.url);
+    const loginUrl = new URL("/login", env.APP_URL);
 
-    const callbackUrl = new URL(request.nextUrl.pathname, env.APP_URL);
+    const callbackUrl = new URL(
+      "/api/github/setup",
+      env.APP_URL
+    );
+
     callbackUrl.searchParams.set("installation_id", installationId);
 
     if (setupAction) {
@@ -55,11 +59,11 @@ export async function GET(request: NextRequest) {
   }
 
   if (setupAction === "request") {
-    return buildDashboardRedirect(request, "installation_pending");
+    return buildDashboardRedirect("installation_pending");
   }
 
   if (setupAction && setupAction !== "install") {
-    return buildDashboardRedirect(request, "unsupported_setup_action");
+    return buildDashboardRedirect("unsupported_setup_action");
   }
 
   let installation;
@@ -70,11 +74,11 @@ export async function GET(request: NextRequest) {
       installationId
     );
   } catch {
-    return buildDashboardRedirect(request, "installation_verification_failed");
+    return buildDashboardRedirect("installation_verification_failed");
   }
 
   if (!installation) {
-    return buildDashboardRedirect(request, "installation_not_accessible");
+    return buildDashboardRedirect("installation_not_accessible");
   }
 
   const existing = await prisma.installation.findUnique({
@@ -84,7 +88,7 @@ export async function GET(request: NextRequest) {
   });
 
   if (existing && existing.userId !== auth.userId) {
-    return buildDashboardRedirect(request, "installation_already_claimed");
+    return buildDashboardRedirect("installation_already_claimed");
   }
 
   if (existing) {
@@ -110,5 +114,5 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  return buildDashboardRedirect(request);
+  return buildDashboardRedirect();
 }
