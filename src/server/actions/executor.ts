@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/db/client";
 import { executeAiAction } from "@/server/actions/ai";
 import { executeGithubAction } from "@/server/actions/github";
+import { executeSlackAction } from "@/server/actions/slack";
 import {
   ActionExecutionError,
 } from "@/server/worker/errors";
@@ -75,6 +76,12 @@ export async function executeAction(
         context.claimedLockedAt
       );
 
+    case "SLACK":
+      return executeSlackAction(
+        event.id,
+        context.claimedLockedAt
+      );
+
     case "ADD_LABEL":
     case "COMMENT": {
       if (!context.action.rule) {
@@ -102,11 +109,5 @@ export async function executeAction(
           context.action.actionType,
       });
     }
-
-    case "SLACK":
-      throw new ActionExecutionError(
-        "Slack executor is not configured yet",
-        "permanent"
-      );
   }
 }
