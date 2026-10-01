@@ -1,0 +1,67 @@
+services:
+  - type: web
+    name: github-automation-bot
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      - key: APP_URL
+        fromService:
+          name: github-automation-bot
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+
+      - key: NEXTAUTH_URL
+        fromService:
+          name: github-automation-bot
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+
+      - key: DATABASE_URL
+        sync: false
+
+      - key: DIRECT_URL
+        sync: false
+
+      - key: AUTH_SECRET
+        sync: false
+
+      - key: AUTH_GITHUB_ID
+        sync: false
+
+      - key: AUTH_GITHUB_SECRET
+        sync: false
+
+      - key: GITHUB_APP_ID
+        sync: false
+
+      - key: GITHUB_APP_SLUG
+        sync: false
+
+      - key: GITHUB_APP_PRIVATE_KEY
+        sync: false
+
+      - key: GITHUB_WEBHOOK_SECRET
+        sync: false
+
+      - key: ENCRYPTION_KEY
+        sync: false
+
+      - key: SWEEP_SECRET
+        sync: false
+
+      - key: GEMINI_API_KEY
+        sync: false
+
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash-lite
+
+      - key: WORKER_ENABLED
+        value: "true"
