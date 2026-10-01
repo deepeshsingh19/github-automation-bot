@@ -4,8 +4,12 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "GitHub Automation Bot",
-  description: "Event-driven GitHub automation",
+  title: {
+    default: "GitHub Automation Bot",
+    template: "%s · GitHub Automation Bot",
+  },
+  description:
+    "Event-driven GitHub automation with durable processing, rules, AI triage, and Slack notifications.",
 };
 
 export default function RootLayout({

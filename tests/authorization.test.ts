@@ -33,6 +33,12 @@ const githubRepositoriesMock =
       vi.fn(),
   }));
 
+const githubInstallationsMock =
+  vi.hoisted(() => ({
+    verifyGithubInstallation:
+      vi.fn(),
+  }));
+
 const revalidatePathMock = vi.hoisted(
   () => vi.fn()
 );
@@ -64,6 +70,14 @@ vi.mock(
   () => ({
     listInstallationRepositories:
       githubRepositoriesMock.listInstallationRepositories,
+  })
+);
+
+vi.mock(
+  "@/server/github/installations",
+  () => ({
+    verifyGithubInstallation:
+      githubInstallationsMock.verifyGithubInstallation,
   })
 );
 
@@ -256,6 +270,12 @@ describe("repository authorization", () => {
       {
         id: repositoryId,
         installationId: "other-installation",
+        active: true,
+        installation: {
+          userId: otherUserId,
+          active: true,
+          suspended: false,
+        },
       }
     );
 
@@ -354,6 +374,119 @@ describe("repository authorization", () => {
         id: true,
       },
     });
+  });
+
+  it("reclaims a repository from a stale old installation after reinstall", async () => {
+    authenticate();
+    mockInstallation();
+    mockAccessibleRepository({
+      push: true,
+    });
+
+    prismaMock.repository.findUnique.mockResolvedValue({
+      id: repositoryId,
+      installationId: "old-installation",
+      active: true,
+      installation: {
+        userId,
+        active: true,
+        suspended: false,
+        githubId: BigInt(876543210),
+      },
+    });
+
+    githubInstallationsMock.verifyGithubInstallation.mockResolvedValue(
+      null
+    );
+
+    prismaMock.repository.update.mockResolvedValue({
+      id: repositoryId,
+    });
+
+    const result =
+      await connectRepository(
+        installationId,
+        githubRepoId
+      );
+
+    expect(result).toEqual({
+      success: true,
+    });
+
+    expect(
+      githubInstallationsMock.verifyGithubInstallation
+    ).toHaveBeenCalledWith(
+      "test-github-token",
+      "876543210"
+    );
+
+    expect(
+      prismaMock.repository.update
+    ).toHaveBeenCalledWith({
+      where: {
+        id: repositoryId,
+      },
+      data: {
+        installationId,
+        owner: "deepeshsingh19",
+        name: "test-repo",
+        fullName:
+          "deepeshsingh19/test-repo",
+        active: true,
+      },
+    });
+  });
+
+  it("rejects a repository when the user's old installation is still active on GitHub", async () => {
+    authenticate();
+    mockInstallation();
+    mockAccessibleRepository({
+      push: true,
+    });
+
+    prismaMock.repository.findUnique.mockResolvedValue({
+      id: repositoryId,
+      installationId: "old-installation",
+      active: true,
+      installation: {
+        userId,
+        active: true,
+        suspended: false,
+        githubId: BigInt(876543211),
+      },
+    });
+
+    githubInstallationsMock.verifyGithubInstallation.mockResolvedValue({
+      id: 876543211,
+      account: {
+        login: "deepeshsingh19",
+        id: 12345,
+      },
+      app_id: 123456,
+      app_slug: "github-automation-bot",
+      suspended_at: null,
+      repository_selection: "selected",
+    });
+
+    const result =
+      await connectRepository(
+        installationId,
+        githubRepoId
+      );
+
+    expect(result).toEqual({
+      success: false,
+      error:
+        "Repository is already connected to another installation.",
+    });
+
+    expect(
+      prismaMock.repository.update
+    ).not.toHaveBeenCalled();
+
+    expect(
+      prismaMock.repository.create
+    ).not.toHaveBeenCalled();
   });
 
   it("allows an authorized user to connect an accessible repository", async () => {

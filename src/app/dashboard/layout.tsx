@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 
 import { authOptions } from "@/auth";
+import DashboardShell from "@/components/dashboard/DashboardShell";
 
 export default async function DashboardLayout({
   children,
@@ -11,9 +12,15 @@ export default async function DashboardLayout({
 }) {
   const session = await getServerSession(authOptions);
 
-  if (!session) {
+  if (!session?.user.id) {
     redirect("/login");
   }
 
-  return <>{children}</>;
+  return (
+    <DashboardShell
+      githubLogin={session.user.githubLogin}
+    >
+      {children}
+    </DashboardShell>
+  );
 }

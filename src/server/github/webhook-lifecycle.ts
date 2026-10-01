@@ -8,7 +8,9 @@ type LifecycleResult = {
   handled: boolean;
 };
 
-function getInstallationId(payload: GithubPayload) {
+function getInstallationId(
+  payload: GithubPayload
+) {
   const installation =
     typeof payload.installation === "object" &&
     payload.installation !== null
@@ -17,11 +19,17 @@ function getInstallationId(payload: GithubPayload) {
 
   const id = installation?.id;
 
-  if (typeof id === "number" && Number.isSafeInteger(id)) {
+  if (
+    typeof id === "number" &&
+    Number.isSafeInteger(id)
+  ) {
     return BigInt(id);
   }
 
-  if (typeof id === "string" && /^\d+$/.test(id)) {
+  if (
+    typeof id === "string" &&
+    /^\d+$/.test(id)
+  ) {
     return BigInt(id);
   }
 
@@ -30,7 +38,9 @@ function getInstallationId(payload: GithubPayload) {
 
 function getRepositoryIds(
   payload: GithubPayload,
-  field: "repositories_added" | "repositories_removed"
+  field:
+    | "repositories_added"
+    | "repositories_removed"
 ) {
   const values = payload[field];
 
@@ -47,7 +57,9 @@ function getRepositoryIds(
         return null;
       }
 
-      const object = value as Record<string, unknown>;
+      const object =
+        value as Record<string, unknown>;
+
       const id = object.id;
 
       if (
@@ -66,7 +78,25 @@ function getRepositoryIds(
 
       return null;
     })
-    .filter((id): id is bigint => id !== null);
+    .filter(
+      (id): id is bigint =>
+        id !== null
+    );
+}
+
+async function deactivateInstallationRepositories(
+  installationId: bigint
+) {
+  await prisma.repository.updateMany({
+    where: {
+      installation: {
+        githubId: installationId,
+      },
+    },
+    data: {
+      active: false,
+    },
+  });
 }
 
 export async function handleGithubLifecycleEvent(
@@ -76,14 +106,16 @@ export async function handleGithubLifecycleEvent(
 ): Promise<LifecycleResult> {
   if (
     eventType !== "installation" &&
-    eventType !== "installation_repositories"
+    eventType !==
+      "installation_repositories"
   ) {
     return {
       handled: false,
     };
   }
 
-  const installationId = getInstallationId(payload);
+  const installationId =
+    getInstallationId(payload);
 
   if (!installationId) {
     return {
@@ -94,15 +126,21 @@ export async function handleGithubLifecycleEvent(
   if (eventType === "installation") {
     switch (action) {
       case "suspend":
+      case "deleted":
         await prisma.installation.updateMany({
           where: {
             githubId: installationId,
           },
           data: {
             active: false,
-            suspended: true,
+            suspended:
+              action === "suspend",
           },
         });
+
+        await deactivateInstallationRepositories(
+          installationId
+        );
         break;
 
       case "unsuspend":
@@ -115,16 +153,15 @@ export async function handleGithubLifecycleEvent(
             suspended: false,
           },
         });
-        break;
 
-      case "deleted":
-        await prisma.installation.updateMany({
+        await prisma.repository.updateMany({
           where: {
-            githubId: installationId,
+            installation: {
+              githubId: installationId,
+            },
           },
           data: {
-            active: false,
-            suspended: false,
+            active: true,
           },
         });
         break;
@@ -152,10 +189,11 @@ export async function handleGithubLifecycleEvent(
   }
 
   if (action === "added") {
-    const repositoryIds = getRepositoryIds(
-      payload,
-      "repositories_added"
-    );
+    const repositoryIds =
+      getRepositoryIds(
+        payload,
+        "repositories_added"
+      );
 
     if (repositoryIds.length > 0) {
       await prisma.repository.updateMany({
@@ -175,10 +213,11 @@ export async function handleGithubLifecycleEvent(
   }
 
   if (action === "removed") {
-    const repositoryIds = getRepositoryIds(
-      payload,
-      "repositories_removed"
-    );
+    const repositoryIds =
+      getRepositoryIds(
+        payload,
+        "repositories_removed"
+      );
 
     if (repositoryIds.length > 0) {
       await prisma.repository.updateMany({

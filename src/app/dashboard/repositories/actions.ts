@@ -8,6 +8,7 @@ import { authOptions } from "@/auth";
 import { prisma } from "@/db/client";
 import { getGithubAuthContextFromCurrentRequest } from "@/server/auth/github-token-context";
 import { listInstallationRepositories } from "@/server/github/repositories";
+import { verifyGithubInstallation } from "@/server/github/installations";
 import { encryptSecret } from "@/server/crypto/encryption";
 import { validateSlackWebhookUrl } from "@/server/slack/validate";
 
@@ -132,25 +133,94 @@ export async function connectRepository(
       select: {
         id: true,
         installationId: true,
+        active: true,
+        installation: {
+          select: {
+            userId: true,
+            active: true,
+            suspended: true,
+            githubId: true,
+          },
+        },
       },
     });
 
-    if (existing && existing.installationId !== installation.id) {
-      return {
-        success: false,
-        error: "Repository is already connected to another installation.",
-      };
-    }
+    if (
+      existing &&
+      existing.installationId !== installation.id
+    ) {
+      if (
+        existing.installation.userId !==
+        context.session.user.id
+      ) {
+        return {
+          success: false,
+          error:
+            "Repository is already connected to another installation.",
+        };
+      }
 
-    if (existing) {
+      let canReclaim = false;
+
+      if (
+        !existing.installation.active &&
+        !existing.active
+      ) {
+        canReclaim = true;
+      } else {
+        try {
+          const oldInstallation =
+            await verifyGithubInstallation(
+              context.githubAuth.accessToken,
+              existing.installation.githubId.toString()
+            );
+
+          canReclaim = !oldInstallation;
+        } catch {
+          return {
+            success: false,
+            error:
+              "Unable to verify the previous GitHub installation.",
+          };
+        }
+      }
+
+      if (!canReclaim) {
+        return {
+          success: false,
+          error:
+            "Repository is already connected to another installation.",
+        };
+      }
+
       await prisma.repository.update({
         where: {
           id: existing.id,
         },
         data: {
-          owner: githubRepository.owner.login,
-          name: githubRepository.name,
-          fullName: githubRepository.full_name,
+          installationId:
+            installation.id,
+          owner:
+            githubRepository.owner.login,
+          name:
+            githubRepository.name,
+          fullName:
+            githubRepository.full_name,
+          active: true,
+        },
+      });
+    } else if (existing) {
+      await prisma.repository.update({
+        where: {
+          id: existing.id,
+        },
+        data: {
+          owner:
+            githubRepository.owner.login,
+          name:
+            githubRepository.name,
+          fullName:
+            githubRepository.full_name,
           active: true,
         },
       });
