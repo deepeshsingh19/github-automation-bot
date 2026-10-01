@@ -235,15 +235,63 @@ async function generateTriage(
         );
       }
 
+      const rawError =
+        await response.text();
+
+      let providerMessage =
+        "Request rejected by Gemini";
+      let providerStatus = "";
+
+      try {
+        const parsed =
+          JSON.parse(rawError) as {
+            error?: {
+              message?: unknown;
+              status?: unknown;
+            };
+          };
+
+        if (
+          typeof parsed.error?.message ===
+            "string" &&
+          parsed.error.message.trim()
+        ) {
+          providerMessage =
+            parsed.error.message
+              .trim()
+              .slice(0, 300);
+        }
+
+        if (
+          typeof parsed.error?.status ===
+            "string" &&
+          parsed.error.status.trim()
+        ) {
+          providerStatus =
+            parsed.error.status
+              .trim()
+              .slice(0, 100);
+        }
+      } catch {
+        // Keep the generic provider message.
+      }
+
       throw aiError(
-        `Gemini request failed with status ${response.status}`
+        `Gemini request failed (${response.status})` +
+          `${
+            providerStatus
+              ? `: ${providerStatus}`
+              : ""
+          }` +
+          `: ${providerMessage}`
       );
     }
 
     const data =
       await response.json();
 
-    const text = extractText(data);
+    const text =
+      extractText(data);
 
     let parsedJson: unknown;
 
