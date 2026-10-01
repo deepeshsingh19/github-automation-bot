@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/db/client";
+import { executeAiAction } from "@/server/actions/ai";
 import { executeGithubAction } from "@/server/actions/github";
 import {
   ActionExecutionError,
@@ -9,6 +10,7 @@ import type { NormalizedEventPayload } from "@/server/rules/engine";
 
 export type ExecuteActionContext = {
   eventId: string;
+  claimedLockedAt: Date;
   action: {
     id: string;
     actionType:
@@ -64,24 +66,30 @@ export async function executeAction(
     );
   }
 
-  if (!context.action.rule) {
-    throw new ActionExecutionError(
-      "Rule-backed action is missing its rule",
-      "permanent"
-    );
-  }
-
-  const payload =
-    parsePayload(event.payload);
-
-  const installationId =
-    event.repository.installation.githubId.toString();
-
   switch (
     context.action.actionType
   ) {
+    case "AI":
+      return executeAiAction(
+        event.id,
+        context.claimedLockedAt
+      );
+
     case "ADD_LABEL":
-    case "COMMENT":
+    case "COMMENT": {
+      if (!context.action.rule) {
+        throw new ActionExecutionError(
+          "GitHub action is missing its rule",
+          "permanent"
+        );
+      }
+
+      const payload =
+        parsePayload(event.payload);
+
+      const installationId =
+        event.repository.installation.githubId.toString();
+
       return executeGithubAction({
         eventId: event.id,
         actionKey:
@@ -93,12 +101,7 @@ export async function executeAction(
         actionType:
           context.action.actionType,
       });
-
-    case "AI":
-      throw new ActionExecutionError(
-        "AI executor is not configured yet",
-        "permanent"
-      );
+    }
 
     case "SLACK":
       throw new ActionExecutionError(

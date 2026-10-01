@@ -68,6 +68,18 @@ function getRuleEventType(
   );
 }
 
+function isNonBlockingFailedAction(
+  action: {
+    actionType: string;
+    status: string;
+  }
+) {
+  return (
+    action.actionType === "AI" &&
+    action.status === "FAILED"
+  );
+}
+
 export async function processEvent(
   claimedEvent: ClaimedEventInput
 ) {
@@ -169,6 +181,13 @@ export async function processEvent(
         continue;
       }
 
+      if (
+        action.status === "FAILED" &&
+        isNonBlockingFailedAction(action)
+      ) {
+        continue;
+      }
+
       if (action.status === "FAILED") {
         await markEventFailed(
           event.id,
@@ -193,6 +212,8 @@ export async function processEvent(
       try {
         const response = await executeAction({
           eventId: event.id,
+          claimedLockedAt:
+            claimedEvent.lockedAt,
           action: {
             id: action.id,
             actionType: action.actionType,
@@ -218,6 +239,24 @@ export async function processEvent(
       } catch (error) {
         const message = getErrorMessage(error);
         const kind = classifyUnknownError(error);
+
+        if (
+          action.actionType === "AI" ||
+          kind === "ai"
+        ) {
+          const fenced = await markActionFailed(
+            action.id,
+            event.id,
+            claimedEvent.lockedAt,
+            message
+          );
+
+          if (!fenced) {
+            return;
+          }
+
+          continue;
+        }
 
         if (kind === "permanent") {
           const fenced = await markActionFailed(
@@ -267,7 +306,9 @@ export async function processEvent(
 
     if (
       finalActions.every(
-        (action) => action.status === "SUCCESS"
+        (action) =>
+          action.status === "SUCCESS" ||
+          isNonBlockingFailedAction(action)
       )
     ) {
       await markEventDone(

@@ -68,11 +68,8 @@ function mockFetch(
 
 describe("GitHub action executor", () => {
   it("adds a label", async () => {
-    const fetchMock = vi.fn(
-      async (
-        _input: RequestInfo | URL,
-        _options?: RequestInit
-      ) =>
+    const fetchMock = vi.fn<FetchImplementation>(
+      async () =>
         new Response(
           JSON.stringify([
             {
@@ -150,11 +147,8 @@ describe("GitHub action executor", () => {
     const marker =
       "<!-- bot:event-2:rule:rule-2:comment -->";
 
-    const fetchMock = vi.fn(
-      async (
-        _input: RequestInfo | URL,
-        _options?: RequestInit
-      ) =>
+    const fetchMock = vi.fn<FetchImplementation>(
+      async () =>
         new Response(
           JSON.stringify([
             {
@@ -232,11 +226,8 @@ describe("GitHub action executor", () => {
       ),
     ];
 
-    const fetchMock = vi.fn(
-      async (
-        _input: RequestInfo | URL,
-        _options?: RequestInit
-      ) => {
+    const fetchMock = vi.fn<FetchImplementation>(
+      async () => {
         const response =
           responses.shift();
 
@@ -335,7 +326,7 @@ describe("GitHub action executor", () => {
 
     let callCount = 0;
 
-    const fetchMock = vi.fn(
+    const fetchMock = vi.fn<FetchImplementation>(
       async (
         input: RequestInfo | URL,
         options?: RequestInit
@@ -397,11 +388,8 @@ describe("GitHub action executor", () => {
 
 describe("GitHub action error handling", () => {
   it("classifies a 429 as transient", async () => {
-    const fetchMock = vi.fn(
-      async (
-        _input: RequestInfo | URL,
-        _options?: RequestInit
-      ) =>
+    const fetchMock = vi.fn<FetchImplementation>(
+      async () =>
         new Response(
           JSON.stringify({
             message: "rate limited",
@@ -442,11 +430,8 @@ describe("GitHub action error handling", () => {
   });
 
   it("classifies a 404 as permanent", async () => {
-    const fetchMock = vi.fn(
-      async (
-        _input: RequestInfo | URL,
-        _options?: RequestInit
-      ) =>
+    const fetchMock = vi.fn<FetchImplementation>(
+      async () =>
         new Response(
           JSON.stringify({
             message: "not found",
