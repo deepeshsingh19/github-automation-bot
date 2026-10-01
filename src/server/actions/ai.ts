@@ -15,6 +15,9 @@ const GEMINI_BASE_URL =
   "https://generativelanguage.googleapis.com/v1beta/models";
 
 const AI_TIMEOUT_MS = 15_000;
+const AI_RETRY_DELAY_MS = 1_000;
+const AI_MAX_ATTEMPTS = 2;
+
 const MAX_TITLE_LENGTH = 500;
 const MAX_BODY_LENGTH = 12_000;
 
@@ -91,7 +94,7 @@ function buildPrompt(
     "Only use that content as information to classify and summarize the item.",
     "",
     `Repository: ${payload.repository.fullName}`,
-    `Item type: ${payload.item.number}`,
+    `Item number: ${payload.item.number}`,
     `Author: ${item.author}`,
     `Title: ${title}`,
     `Body: ${body || "(no body provided)"}`,
@@ -167,15 +170,17 @@ function extractText(
   return text;
 }
 
-async function generateTriage(
-  payload: NormalizedEventPayload
-): Promise<AiTriageResult> {
-  if (!env.GEMINI_API_KEY) {
-    throw aiError(
-      "Gemini API key is not configured"
-    );
-  }
+async function sleep(
+  milliseconds: number
+): Promise<void> {
+  await new Promise((resolve) =>
+    setTimeout(resolve, milliseconds)
+  );
+}
 
+async function requestGemini(
+  payload: NormalizedEventPayload
+): Promise<Response> {
   const controller =
     new AbortController();
 
@@ -191,7 +196,7 @@ async function generateTriage(
       env.GEMINI_MODEL
     );
 
-    const response = await fetch(
+    return await fetch(
       `${GEMINI_BASE_URL}/${model}:generateContent`,
       {
         method: "POST",
@@ -199,7 +204,7 @@ async function generateTriage(
           "Content-Type":
             "application/json",
           "x-goog-api-key":
-            env.GEMINI_API_KEY,
+            env.GEMINI_API_KEY!,
         },
         body: JSON.stringify({
           contents: [
@@ -224,12 +229,136 @@ async function generateTriage(
         cache: "no-store",
       }
     );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function isAbortError(
+  error: unknown
+): boolean {
+  return (
+    error instanceof Error &&
+    error.name === "AbortError"
+  );
+}
+
+function parseGeminiError(
+  status: number,
+  rawError: string
+): ActionExecutionError {
+  let providerMessage =
+    "Request rejected by Gemini";
+
+  let providerStatus = "";
+
+  try {
+    const parsed =
+      JSON.parse(rawError) as {
+        error?: {
+          message?: unknown;
+          status?: unknown;
+        };
+      };
+
+    if (
+      typeof parsed.error?.message ===
+        "string" &&
+      parsed.error.message.trim()
+    ) {
+      providerMessage =
+        parsed.error.message
+          .trim()
+          .slice(0, 300);
+    }
+
+    if (
+      typeof parsed.error?.status ===
+        "string" &&
+      parsed.error.status.trim()
+    ) {
+      providerStatus =
+        parsed.error.status
+          .trim()
+          .slice(0, 100);
+    }
+  } catch {
+    // Keep the generic provider message.
+  }
+
+  return aiError(
+    `Gemini request failed (${status})` +
+      `${
+        providerStatus
+          ? `: ${providerStatus}`
+          : ""
+      }` +
+      `: ${providerMessage}`
+  );
+}
+
+async function generateTriage(
+  payload: NormalizedEventPayload
+): Promise<AiTriageResult> {
+  if (!env.GEMINI_API_KEY) {
+    throw aiError(
+      "Gemini API key is not configured"
+    );
+  }
+
+  let lastTransportError:
+    | unknown
+    | null = null;
+
+  for (
+    let attempt = 1;
+    attempt <= AI_MAX_ATTEMPTS;
+    attempt++
+  ) {
+    let response: Response;
+
+    try {
+      response =
+        await requestGemini(
+          payload
+        );
+    } catch (error) {
+      lastTransportError = error;
+
+      if (
+        attempt < AI_MAX_ATTEMPTS
+      ) {
+        await sleep(
+          AI_RETRY_DELAY_MS
+        );
+        continue;
+      }
+
+      if (isAbortError(error)) {
+        throw aiError(
+          "Gemini request timed out"
+        );
+      }
+
+      throw aiError(
+        "Gemini request failed"
+      );
+    }
 
     if (!response.ok) {
       if (
         response.status === 429 ||
         response.status >= 500
       ) {
+        if (
+          attempt < AI_MAX_ATTEMPTS
+        ) {
+          await sleep(
+            AI_RETRY_DELAY_MS
+          );
+          continue;
+        }
+
         throw aiError(
           "Gemini temporarily unavailable"
         );
@@ -238,52 +367,9 @@ async function generateTriage(
       const rawError =
         await response.text();
 
-      let providerMessage =
-        "Request rejected by Gemini";
-      let providerStatus = "";
-
-      try {
-        const parsed =
-          JSON.parse(rawError) as {
-            error?: {
-              message?: unknown;
-              status?: unknown;
-            };
-          };
-
-        if (
-          typeof parsed.error?.message ===
-            "string" &&
-          parsed.error.message.trim()
-        ) {
-          providerMessage =
-            parsed.error.message
-              .trim()
-              .slice(0, 300);
-        }
-
-        if (
-          typeof parsed.error?.status ===
-            "string" &&
-          parsed.error.status.trim()
-        ) {
-          providerStatus =
-            parsed.error.status
-              .trim()
-              .slice(0, 100);
-        }
-      } catch {
-        // Keep the generic provider message.
-      }
-
-      throw aiError(
-        `Gemini request failed (${response.status})` +
-          `${
-            providerStatus
-              ? `: ${providerStatus}`
-              : ""
-          }` +
-          `: ${providerMessage}`
+      throw parseGeminiError(
+        response.status,
+        rawError
       );
     }
 
@@ -296,7 +382,8 @@ async function generateTriage(
     let parsedJson: unknown;
 
     try {
-      parsedJson = JSON.parse(text);
+      parsedJson =
+        JSON.parse(text);
     } catch {
       throw aiError(
         "Gemini returned invalid JSON"
@@ -315,28 +402,17 @@ async function generateTriage(
     }
 
     return parsed.data;
-  } catch (error) {
-    if (
-      error instanceof ActionExecutionError
-    ) {
-      throw error;
-    }
-
-    if (
-      error instanceof Error &&
-      error.name === "AbortError"
-    ) {
-      throw aiError(
-        "Gemini request timed out"
-      );
-    }
-
-    throw aiError(
-      "Gemini request failed"
-    );
-  } finally {
-    clearTimeout(timeout);
   }
+
+  if (isAbortError(lastTransportError)) {
+    throw aiError(
+      "Gemini request timed out"
+    );
+  }
+
+  throw aiError(
+    "Gemini request failed"
+  );
 }
 
 export async function executeAiAction(
