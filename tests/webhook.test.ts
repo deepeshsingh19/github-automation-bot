@@ -239,7 +239,7 @@ describe("GitHub webhook route", () => {
 
   it("ignores pull request label events", async () => {
     const { installation, repository } =
-      await createRepository();
+      await createRepository(); 
 
     const body = JSON.stringify({
       action: "labeled",
